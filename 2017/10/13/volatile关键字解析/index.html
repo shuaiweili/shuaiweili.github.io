@@ -1,0 +1,156 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta http-equiv="content-type" content="text/html; charset=utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport"><meta content="yes" name="apple-mobile-web-app-capable"><meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"><meta content="telephone=no" name="format-detection"><meta name="description" content="shuaiwei.li's blog."><title>volatile关键字解析 | 路漫漫其修远兮，吾将上下而求索</title><link rel="stylesheet" type="text/css" href="//fonts.css.network/css?family=Source+Code+Pro"><link rel="stylesheet" type="text/css" href="/css/style.css?v=2.0.1"><link rel="stylesheet" type="text/css" href="/css/highlight.css?v=2.0.1"><link rel="Shortcut Icon" href="/favicon.ico"><link rel="bookmark" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png"></head><body><div class="body_container"><div id="header"><div class="site-name"><h1 class="hidden">volatile关键字解析</h1><a id="logo" href="/.">路漫漫其修远兮，吾将上下而求索</a><p class="description">锋卫摇摆人</p></div><div id="nav-menu"><a href="/." class="current"><i class="fa fa-home"> 首页</i></a><a href="/archives/"><i class="fa fa-archive"> 归档</i></a><a href="/about/"><i class="fa fa-user"> 关于</i></a><a href="/atom.xml"><i class="fa fa-rss"> 订阅</i></a></div><div id="search-form"><div id="result-mask" class="hide"></div><label><input id="search-key" type="text" autocomplete="off" placeholder="Arama"></label><div id="result-wrap" class="hide"><div id="search-result"></div></div><div class="hide"><template id="search-tpl"><div class="item"><a href="/{path}" title="{title}"><div class="title">{title}</div><div class="time">{date}</div><div class="tags">{tags}</div></a></div></template></div></div></div><div id="layout" class="layout-g"><div class="layout-l"><div class="content_container"><div class="post"><h1 class="post-title">volatile关键字解析</h1><div class="post-meta"><a href="/2017/10/13/volatile关键字解析/#comments" class="comment-count"></a><p><span class="date">Oct 13, 2017</span><span><a href="/categories/java并发/" class="category">java并发</a></span><span><i id="busuanzi_container_page_pv"><i id="busuanzi_value_page_pv"></i><i>点击</i></i></span></p></div><div class="post-content"><h1 id="一、内存模型的相关概念"><a href="#一、内存模型的相关概念" class="headerlink" title="一、内存模型的相关概念"></a>一、内存模型的相关概念</h1><p>计算机在执行程序时，每条指令都是在CPU中执行的，而执行指令过程中，会涉及到数据的读取和写入。由于程序运行过程中的临时数据是存放在主存（物理内存）中的,这时就存在一个问题，由于CPU执行速度很快，而从内存读取数据和向内存写入数据的过程跟CPU执行指令的速度比起来要慢得多，因此如果任何时候对数据的操作都要通过和内存的交互来进行，会大大降低指令执行的速度。因此在CPU里面就有了告诉缓存。</p>
+<p>也就是，当程序在运行过程中，会将运算需要的数据从主存复制一份到CPU的高速缓存中，那么CPU进行计算时就可以直接从他的高速缓存读取数据和向其中写入数据，当运算结束之后，再将高速缓存中的数据刷新到主存当中。比如下面的这段代码：</p>
+<blockquote>
+<p>i = i + 1</p>
+</blockquote>
+<p>当线程执行这个语句时，会先从主存当中读取i的值，然后复制一份到高速缓存当中，然后CPU执行指令对i进行加1操作，然后将数据写入高速缓存，最后将高速缓存中i最新的值刷新到主存当中。</p>
+<p>这个代码在单线程中运行时没有任何问题的，但是在多线程中运行就会有问题了。在多核CPU中，每条线程可能运行在不同的CPU中，因此每个线程运行时有自己的高速缓存（对单核CPU来说，其实也会出现这种问题，只不过是以线程调度的形式来分别执行的）。本文我们以多核CPU为例。</p>
+<p>比如同时有2个线程执行这段代码，假如初始时i的值为0，那么我们希望两个线程执行完之后i的值变为2.但是事实是这样吗？</p>
+<p>可能存在下面一种情况：初始时，两个线程分别读取i的值存入各自所在的CPU高速缓存当中，然后线程1进行加1操作，然后把i的最新值1写入到内存。此时线程2的高速缓存当中i的值还是0，进行加1操作后，i的值为1，然后线程2吧i的值写入内存。</p>
+<p>最终结果i的值是1，而不是2。这就是著名的缓存一致性问题。通常称这种被多个线程访问的变量为共享变量。</p>
+<p>也就是说如果一个变量在多个CPU中都存在缓存（一个在多线程编程时才会出现），那么就有可能存在缓存一致性问题。</p>
+<p>为了解决缓存不一致性问题，通常来说有以下2种解决方法：</p>
+<p>1) 通过在总线加LOCK#锁的方式</p>
+<p>2) 通过缓存一致性协议</p>
+<p>这2种方式都是硬件层面上提供的方式。</p>
+<p>在早期的CPU当中，是通过在总线上加LOCK#所得形式来解决缓存不一致的问题。因为CPU和其他部件进行通信都是通过总线来进行的，如果对总线加LOCK#锁的话，也就是说阻塞了其他CPU对其他部件访问（如内存），从而使得只能有一个CPU能使用这个变量的内存。比如上面例子中如果一个线程在执行i=i+1，如果在执行这段代码的过程中，在总线上发出了LOCK#锁的信号，那么只有等待这段代码完全执行完毕之后，其他CPU才能从变量i所在的内存读取变量，然后进行相应的操作。这样就解决了缓存不一致的问题。</p>
+<p>但是上面的方式有一个问题，由于在锁住中线期间，其他CPU无法访问内存，导致效率低下。</p>
+<p>所以就出现了缓存一致性协议。最出名的就是Intel的MESI协议，MESI协议保证了每个缓存中使用的共享变量的副本是一致的。它核心的思想是：当CPU写数据时，如果发现操作的变量是共享变量，即在其他CPU中也存在该变量的副本，会发出信号通知其他CPU将该变量的缓存行置为无效状态，因此当其他CPU需要读取这个变量时，发现自己缓存中缓存该变量的缓存行是无效的，那么他就会从内存中重新读取。</p>
+<h1 id="二、并发编程中的三个概念"><a href="#二、并发编程中的三个概念" class="headerlink" title="二、并发编程中的三个概念"></a>二、并发编程中的三个概念</h1><p>在并发编程中，我们通常会遇到以下三个问题：原子性问题，可见性问题，有序性问题。我们看一下具体概念：</p>
+<p><strong>1. 原子性</strong></p>
+<p>原子性：即一个操作或多个操作，要么全部执行并且执行的过程不会被任何因素打断，要么就都不执行。</p>
+<p>一个很经典的例子就是银行账户转账问题：</p>
+<p>比如从账户A向账户B转1000元，那么必然包括2个操作：从账户A减去1000元，往账户B加上1000元。</p>
+<p>试想一下，如果这2个操作不具备原子性，会造成什么样的后果。假如从账户A减去1000元之后，操作突然终止。然后又从B中取出了500元，取出500元之后，再执行往账户B加上1000元操作。这样就会导致账户A虽然捡去了1000元，但是账户B没有收到这个转过来的1000元。</p>
+<p>所以这2个操作必须要具备原子性才能保证不出现一些意外的问题。</p>
+<p><strong>2. 可见性</strong></p>
+<p>可见性是指当多个线程访问同一个变量时，一个线程修改了这个变量的值，其他线程能够立即看得到修改的值。</p>
+<p>举个简单的例子，看下嘛这段代码：</p>
+<blockquote>
+<p>//线程1执行的代码<br><br>int i = 0;<br><br>i = 10;<br><br>//线程2执行的代码<br><br>j = i;</p>
+</blockquote>
+<p>假如执行线程1的是CPU1，执行线程2的是CPU2.由上面的分析可知，当线程1执行i=10这句时，会把i的初始值加载到CPU1的高速缓存中，然后赋值为10，那么在CPU1的高速缓存中i的值变为10了，却没有立即写到主存中。</p>
+<p>此时线程2执行j = i，他会先去主存读取i的值并加载到CPU2的缓存中，注意此时内存当中i的值还是0，那么就会使得j的值为0，而不是10。</p>
+<p>这就是可见性问题，线程1对变量i修改了之后，线程2没有立即看到线程1修改的值。</p>
+<p><strong>3. 有序性</strong></p>
+<p>有序性：即程序执行的顺序按照代码的先后顺序执行。举个简单的例子，看下面的这段代码：</p>
+<blockquote>
+<p>int i = 0;<br><br>boolean flag = false;<br><br>i = 1;<br><br>//语句1 flag = true; //语句2</p>
+</blockquote>
+<p>上面代码定义了一个int型变量，定义了一个boolean类型变量，然后分别对两个变量进行赋值操作。从代码顺序上看，语句1所在语句2前面的，那么JVM在真正执行这段代码的时候会保证语句1一定在语句2前面执行吗？不一定，为什么呢？这里可能会发生指令重排序（Instruction Reorder）。</p>
+<p>下面解释一下什么是指令重排序，一般来说，处理器为了提高运行效率，可能会对输入代码进行优化，它不保证程序中各个语句的执行先后顺序同代码中的顺序一致，但是它会保证程序最终执行结果和代码顺序执行的结果是一致的。</p>
+<p>比如上面的代码中，语句1和语句2谁先执行对最终的程序结果并没有影响，那么就有可能在执行过程中，语句2先执行而语句1后执行。</p>
+<p>但是要注意，虽然重排序不会影响单个线程内程序执行的结果，但是多线程呢？下面看一个例子：</p>
+<blockquote>
+<p>//线程1<br><br>context = loadContext(); //语句1<br><br>inited = true; //语句2<br></p>
+<p>//线程2<br><br>while(!inited) {<br><br>sleep()<br><br>}<br><br>doSomethingwithconfig(context);</p>
+</blockquote>
+<p>上面代码中，由于语句1和语句2没有数据依赖性，因此可能会被重排序。假如发生了重排序，在线程1执行中先执行了语句2，而此时线程2会以为初始化工作已经完成，那么就会跳出while循环，去执行doSomethingwithconfig(context)方法，而此时context并没有被初始化，就会导致程序出错。</p>
+<p>从上面可以看出，指令重排序不会影响单个线程的执行，但是会影响到线程并发执行的正确性。</p>
+<p>也就是说，要想并发程序正确地执行，必须要保证原子性、可见性以及有序性。只要有一个没有被保证，就有可能会导致程序运行不正确。</p>
+<h1 id="三、Java内存模型"><a href="#三、Java内存模型" class="headerlink" title="三、Java内存模型"></a>三、Java内存模型</h1><p>在Java虚拟机规范中试图定义一种Java内存模型（Java Memory Model, JMM）来屏蔽各个硬件平台和操作系统的内存访问差异，以实现让Java程序在各种平台下都能达到一致的内存访问效果。那么Java内存模型规定了哪些东西呢，它定义了程序中变量的访问规则，往大一点说就是定义了程序执行的次序。注意，为了获得较好的执行性能，Java内存模型并没有限制执行引擎使用处理器的寄存器或者高速缓存来提升指令执行速度，也没有限制编译器对指令进行重排序。也就是说，在Java内存模型中，也会存在缓存一致性问题和指令重排序问题。</p>
+<p>Java内存模型规定所有的变量都是存在主存中（类似于前面说的物理内存），每个线程都有自己的工作内存（类似于前面的高速缓存）。线程对变量的所有操作都必须在工作内存中进行，而不是直接对主存进行操作。并亲每个线程不能访问其他线程的工作内存。</p>
+<p>举个简单的例子：在java中，执行下面这个语句：</p>
+<blockquote>
+<p>i = 10;</p>
+</blockquote>
+<p>执行线程必须先在自己的工作线程中对变量i所在的缓存进行赋值操作，然后再写入主存中。而不是直接将数值10写入主存当中。</p>
+<p>那么Java语言本身对原子性、可见性以及有序性提供了哪些保证呢？</p>
+<p><strong>1. 原子性</strong></p>
+<p>在Java中，对基本数据类型的变量的读取和赋值操作是员自行操作，即这些操作是不可被中断的，要么执行，要么不执行。</p>
+<p>上面一句话虽然看起来简单，但是理解起来并不是那么容易。看下面一个例子：</p>
+<p>请分析一下哪些操作是原子性操作：</p>
+<blockquote>
+<p>x = 10; //语句1<br><br>y = x; //语句2<br><br>x++; //语句3<br><br>x = x + 1;</p>
+</blockquote>
+<p>有些朋友可能会说上面的4个与剧中的操作都是原子性操作。其实只有语句1是原子性操作，其他三个语句都不是原子性操作。</p>
+<p>语句1是直接将数值10赋值给x，也就是说线程执行这个语句时会直接将数值10写入到工作内存中。</p>
+<p>语句2实际上包含2个操作，它先要去读取x的值，再将x的值写入工作内存，虽然读取x的值以及将x的值写入工作内存这2个操作都是原子性操作，但是合起来就不是原子性操作了。</p>
+<p>同样的，x++和x=x+1包含3个操作：读取x的值，进行加1操作，写入新的值。</p>
+<p>所以上面4个语句只有语句1的操作具有原子性。</p>
+<p>也就是说，只有简单的读取、赋值（而且必须是将数字赋值给某个变量，变量之间的相互赋值不是原子操作）才是原子操作。</p>
+<p>不过这里有一点需要注意：在 32位平台下，对64位数据的读取和赋值是需要通过两个操作来完成的，不能保证其原子性。但是好像在最新的JDK中，JVM已经保证对64位数据的读取和赋值都是原子性操作了。</p>
+<p>从上面可以看出，Java内存模型只保证了基本读取和赋值是原子性操作，如果要实现更大范围操作的原子性，可以通过synchronize和Lock来实现。由于synchronize和Lock能够保证任一时刻只有一个线程执行该代码块，那么自然就不存在原子性问题了，从而保证了原子性。</p>
+<p><strong>2. 可见性</strong></p>
+<p>对于可见性，Java提供了volatile关键字来保证可见性。</p>
+<p>当一个共享变量被volatile修饰时，它会保证修改的值会立即被更新到主存，当有其他线程需要读取时，它会去内存中读取新值。</p>
+<p>而普通的共享变量不能保证可见性，因为普通共享变量被修改之后，什么时候被写入主存是不确定的，当其他线程去读取时，此时内存中可能还是原来的旧值，因此无法保证可见性。</p>
+<p>另外，通过synchronize和lock也能保证可见性，synchronize和lock能保证同一时刻只有一个线程获取锁然后执行同步代码，并且在释放锁之前会将对变量的修改刷新到主存当中。因此可以保证可见性。</p>
+<p><strong>3. 有序性</strong></p>
+<p>在Java内存模型中，允许编译器和处理器对指令进行重排序，但是重排序过程不会影响单线程程序的执行，却会影响到多线程并发执行的正确性。</p>
+<p>在Java里面，可以通过volatile关键字来保证一定的”有序性”。另外可以通过synchronize和Lock来保证有序性，很显然，synchronize和Lock保证每个时刻是有一个线程执行同步代码，相当于是让线程顺序执行同步代码，自然就保证了有序性。</p>
+<p>另外，Java内存模型具备一些先天的”有序性”， 即不需要通过任何手段就能够得到保证的有序性，这个通常也成为happens-before原则。如果两个操作的执行次序无法从happens-before原则推导出来，那么它们就不能保证它们的有序性，虚拟机可以随意地对它们进行重排序。</p>
+<p>下面就具体介绍下happens-before原则（先行发生原则）：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div></pre></td><td class="code"><pre><div class="line">- 程序次序规则：一个线程内，按照代码顺序，书写在前面的操作先行发生于书写在后面的操作</div><div class="line">- 锁定规则：一个unlock操作先行发生于后面对同一个锁的lock操作</div><div class="line">- volatile变量规则：对一个变量的写操作先行发生于后面对这个变量的读操作</div><div class="line">- 传递规则：如果操作A先行发生于操作B，而操作B又先行发生于操作C，则可以得出操作A先行发生于操作C</div><div class="line">- 线程启动规则：Thread对象的start()方法先行发生于此线程的每一个动作</div><div class="line">- 线程中断规则：对线程interrupt()方法的调用先行发生于被中断线程的代码检测到中断事件的发生</div><div class="line">- 线程终结规则：线程中所有的操作都先行发生于线程的终止检测，我们可以通过Thread.join()方法结束、Thread.isAlive()的返回值手段检测到线程已终止执行</div><div class="line">- 对象终结规则：一个对象的初始化完成先行发生于它的finalize()方法的开始</div></pre></td></tr></table></figure>
+<p>这8条原则摘自《深入理解Java虚拟机》</p>
+<p>这8条规则中，前4条规则是比较重要的，后4条规则都是显而易见的。</p>
+<p>下面我们来解释一下前4条规则：</p>
+<p>对于程序次序规则来说，我的理解就是一段程序代码的执行在单个线程中看起来是有序的。注意，虽然这条规则中提到”书写在前面的操作先行发生于书写在后面的操作”， 这个应该是程序看起来执行的顺序是按照代码顺序执行的，因为虚拟机可能会对程序代码进行重排序。虽然进行重排序，但是最终执行的结果是与程序顺序执行的结果一致的，它只会对不存在数据依赖性的指令进行重排序。因此，在单个线程中，程序执行看起来是有序执行的，这一点要注意理解。事实上，这个规则是用来保证在单线程中执行结果的正确性，但是无法保证程序在多线程中执行的正确性。</p>
+<p>第二条规则也比较容易理解，也就是说无论在单线程中还是多线程中，同一个锁如果出于被锁定的状态，那么必须先对锁进行释放操作，后面才能继续进行Lock操作。</p>
+<p>第三条规则是一条比较重要的规则，也是后文将要重点讲述的内容。直观地解释就是，如果一个线程先去写一个变量，然后一个线程去进行读取，那么写入操作肯定会先行发生于读操作。</p>
+<p>第四条规则实际上就是体现happens-before原则具备传递性。</p>
+<h1 id="四、深入剖析volatile关键字"><a href="#四、深入剖析volatile关键字" class="headerlink" title="四、深入剖析volatile关键字"></a>四、深入剖析volatile关键字</h1><p>在前面讲述了很多东西，其实都是为讲述volatile关键字作铺垫，那么接下来我们进入主题。</p>
+<p><strong>1. volatile关键字的两层含义</strong></p>
+<p>一旦一个共享变量（类的成员变量、类的静态成员变量）被volatile修饰之后，那么就具备了两层语义：</p>
+<p>1) 保证了不同线程对这个变量进行操作时的可见性，即一个线程修改了某个变量的值，这新值对其他线程来说是立即可见的。</p>
+<p>2) 禁止进行指令重排序</p>
+<p>先看一段代码，假如线程1先执行，线程2后执行：</p>
+<blockquote>
+<p>//线程1<br><br>boolean stop = false;<br><br>while(!stop){ doSomething(); } //线程2<br><br>stop = true;</p>
+</blockquote>
+<p>这段代码是很经典的一段代码，很多人在中断线程时可能都会采用这种标记方法。但是事实上，这段代码会完全运行正确么？即一定会将线程中断吗？不一定，也许在大多数时候，这个代码能够把线程中断，但是也有可能会导致无法中断线程（虽然这个可能性很小，但是只要一旦发生这种情况就会造成死循环了）。</p>
+<p>下面解释一下这段代码为何有可能导致无法中断线程。在前面已经解释过，每个线程在运行过程中都有自己的工作内存，那么线程1在运行的时候，会将stop变量的值拷贝一份放在自己的工作内存中。</p>
+<p>那么线程2更改了stop变量的值之后，但是还没来得及写入主存中，线程2转去做其他事情了，那么线程1由于不知道线程2对stop变量的更改，因此还会一直循环下去。</p>
+<p>但是用volatile修饰之后就变得不一样了：</p>
+<p>第一：使用volatile关键字会强制将修改的值立即写入主存；</p>
+<p>第二：使用volatile关键字的话，当线程2进行修改时，会导致线程1的工作内存中缓存变量stop的缓存行失效（反映到硬件层的话，就是CPU的L1或者L2缓存中对应的缓存行失效）；</p>
+<p>第三：由于线程1的工作内存中缓存变量stop的缓存行失效，所以线程1再次读取stop的值时会去主存读取。</p>
+<p>那么在线程2修改stop值时（当然这里包括2个操作，修改线程2工作内存中的值，然后将修改后的值写入内存），会使得线程1的工作内存缓存变量stop的缓存行无效，然后线程1读取时，发现自己的缓存行无效，它会等待缓存行对应的主存地址被更新之后，然后去对应的主存读取最新的值。</p>
+<p>那么线程1读取到的就是最新的正确的值。</p>
+<p><strong>2. volatile保证原子性吗？</strong></p>
+<p>从上面知道volatile关键字保证了操作的可见性，但是volatile能保证对变量的操作是原子性吗？</p>
+<p>下面看一个例子：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Test</span> </span>&#123;</div><div class="line">        <span class="keyword">public</span> <span class="keyword">volatile</span> <span class="keyword">int</span> inc = <span class="number">0</span>;</div><div class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">increase</span><span class="params">()</span> </span>&#123;</div><div class="line">            inc++;</div><div class="line">        &#125;</div><div class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</div><div class="line">            <span class="keyword">final</span> Test test = <span class="keyword">new</span> Test();</div><div class="line">            <span class="keyword">for</span> (<span class="keyword">int</span> i=<span class="number">0</span>; i&lt;<span class="number">10</span>; i++) &#123;</div><div class="line">                <span class="keyword">new</span> Thread(() -&gt; &#123;</div><div class="line">                    <span class="keyword">for</span> (<span class="keyword">int</span> j=<span class="number">0</span>; j&lt;<span class="number">1000</span>; j++) &#123;</div><div class="line">                        test.increase();</div><div class="line">                    &#125;</div><div class="line">                &#125;).start();</div><div class="line">            &#125;</div><div class="line">            <span class="keyword">while</span> (Thread.activeCount() &gt; <span class="number">1</span>)</div><div class="line">                Thread.yield();</div><div class="line">            System.out.println(test.inc);</div><div class="line">        &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>大家想一下这段程序的输出结果是多少？也许有些朋友认为是10000.但是事实上运行它会发现每次运行结果都不一致，都是小于10000的数字。</p>
+<p>可能有的朋友会有疑问，不对啊，上面是对变量inc进行自增操作，由于volatile保证了可见性，那么在每个线程中对inc自增完之后，在其他线程中都能看到修改后的值啊。</p>
+<p>这里有一个误区，volatile关键字能保证可见性没有错，但是上面的程序错在没能保证原子性。可见性只能保证每次读取的值是最新的值，但是volatile没办法保证对变量的操作的原子性。</p>
+<p><strong>3. volatile能保证有序性吗？</strong></p>
+<p>在前面提到volatile关键字能禁止指令重排序，所以volatile能在一定程度上保证有序性。</p>
+<p>volatile关键字禁止指令重排序有两层意思：</p>
+<p>1）当程序执行到volatile变量的读操作或者写操作时，在其前面的操作的更改肯定全部已经进行，且结果已经对后面的操作可见；在其后面的操作肯定还没有进行；</p>
+<p>2）在进行指令优化时，不能将在对volatile变量访问的语句放在其后面执行，也不能把volatile变量后面的语句放到其前面执行。</p>
+<p>可能上面说的比较绕，举个简单的例子：</p>
+<blockquote>
+<p>//x、y为非volatile变量<br><br>//flag为volatile变量<br></p>
+<p>x = 2; //语句1<br><br>y = 0; //语句2<br><br>flag = true; //语句3<br><br>x = 4; //语句4<br><br>y = -1; //语句5</p>
+</blockquote>
+<p>由于flag变量为volatile变量，那么在进行指令重排序的过程的时候，不会将语句3放到语句1、语句2前面，也不会讲语句3放到语句4、语句5后面。但是要注意语句1和语句2的顺序、语句4和语句5的顺序是不作任何保证的。</p>
+<p>并且volatile关键字能保证，执行到语句3时，语句1和语句2必定是执行完毕了的，且语句1和语句2的执行结果对语句3、语句4、语句5是可见的。</p>
+<p>那么我们回到前面举的一个例子：</p>
+<blockquote>
+<p>//线程1:<br><br>context = loadContext(); //语句1<br><br>inited = true; //语句2<br></p>
+<p>//线程2:<br><br>while(!inited ){<br><br>sleep()<br><br>}<br><br>doSomethingwithconfig(context);</p>
+</blockquote>
+<p>前面举这个例子的时候，提到有可能语句2会在语句1之前执行，那么久可能导致context还没被初始化，而线程2中就使用未初始化的context去进行操作，导致程序出错。</p>
+<p>这里如果用volatile关键字对inited变量进行修饰，就不会出现这种问题了，因为当执行到语句2时，必定能保证context已经初始化完毕。</p>
+<p>4.volatile的原理和实现机制</p>
+<p>前面讲述了源于volatile关键字的一些使用，下面我们来探讨一下volatile到底如何保证可见性和禁止指令重排序的。</p>
+<p>下面这段话摘自《深入理解Java虚拟机》：</p>
+<p>“观察加入volatile关键字和没有加入volatile关键字时所生成的汇编代码发现，加入volatile关键字时，会多出一个lock前缀指令”</p>
+<p>lock前缀指令实际上相当于一个内存屏障（也成内存栅栏），内存屏障会提供3个功能：</p>
+<p>1）它确保指令重排序时不会把其后面的指令排到内存屏障之前的位置，也不会把前面的指令排到内存屏障的后面；即在执行到内存屏障这句指令时，在它前面的操作已经全部完成；</p>
+<p>2）它会强制将对缓存的修改操作立即写入主存；</p>
+<p>3）如果是写操作，它会导致其他CPU中对应的缓存行无效。</p>
+</div><div class="tags"><a href="/tags/volatile/">volatile</a></div><div class="post-share"><div class="bdsharebuttonbox"><span style="float:left;line-height: 28px;height: 28px;font-size:16px;font-weight:blod">分享到：</span><a href="#" data-cmd="more" class="bds_more"></a><a href="#" data-cmd="mshare" title="分享到一键分享" class="bds_mshare"></a><a href="#" data-cmd="fbook" title="分享到Facebook" class="bds_fbook"></a><a href="#" data-cmd="twi" title="分享到Twitter" class="bds_twi"></a><a href="#" data-cmd="linkedin" title="分享到linkedin" class="bds_linkedin"></a><a href="#" data-cmd="youdao" title="分享到有道云笔记" class="bds_youdao"></a><a href="#" data-cmd="evernotecn" title="分享到印象笔记" class="bds_evernotecn"></a><a href="#" data-cmd="weixin" title="分享到微信" class="bds_weixin"></a><a href="#" data-cmd="qzone" title="分享到QQ空间" class="bds_qzone"></a><a href="#" data-cmd="tsina" title="分享到新浪微博" class="bds_tsina"></a></div></div><div class="post-nav"><a href="/2017/10/18/kafka设计解析/" class="pre">Kafka设计解析</a></div><div id="comments"></div></div></div></div><div class="layout-r"><div id="sidebar"><div class="search-pla"></div><div id="toc" class="widget"><div class="widget-title"><i class="fa fa-fei">文章目录</i></div><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#一、内存模型的相关概念"><span class="toc-text">一、内存模型的相关概念</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#二、并发编程中的三个概念"><span class="toc-text">二、并发编程中的三个概念</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#三、Java内存模型"><span class="toc-text">三、Java内存模型</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#四、深入剖析volatile关键字"><span class="toc-text">四、深入剖析volatile关键字</span></a></li></ol></div><div class="widget"><div class="widget-title"><i class="fa fa-xie"> 最新文章</i></div><ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2018/01/17/Jenkins获取代码及打包方式/">Jenkins获取代码及打包</a></li><li class="post-list-item"><a class="post-list-link" href="/2018/01/17/日志收集/">日志收集</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/31/读书笔记-线程池的工作机制及原理/">线程池的运行机制</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/20/kafka源码走读之Producer send/">kafka源码走读之Producer send</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/20/kafka源码走读之Meta更新/">kafka源码走读之Meta更新机制</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/18/kafka设计解析/">Kafka设计解析</a></li><li class="post-list-item"><a class="post-list-link" href="/2017/10/13/volatile关键字解析/">volatile关键字解析</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-gui"> 分类</i></div><ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/java并发/">java并发</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/kafka源码走读/">kafka源码走读</a><span class="category-list-count">3</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/日志/">日志</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/部署/">部署</a><span class="category-list-count">1</span></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-biao"> 标签</i></div><div class="tagcloud"><a href="/tags/logback/" style="font-size: 15px;">logback</a> <a href="/tags/kafka/" style="font-size: 15px;">kafka</a> <a href="/tags/meta/" style="font-size: 15px;">meta</a> <a href="/tags/架构/" style="font-size: 15px;">架构</a> <a href="/tags/volatile/" style="font-size: 15px;">volatile</a> <a href="/tags/log4j/" style="font-size: 15px;">log4j</a> <a href="/tags/源码/" style="font-size: 15px;">源码</a> <a href="/tags/logstash/" style="font-size: 15px;">logstash</a> <a href="/tags/线程池/" style="font-size: 15px;">线程池</a> <a href="/tags/ThreadPool/" style="font-size: 15px;">ThreadPool</a> <a href="/tags/Jenkins/" style="font-size: 15px;">Jenkins</a> <a href="/tags/tag/" style="font-size: 15px;">tag</a> <a href="/tags/package/" style="font-size: 15px;">package</a></div></div><div class="widget"><div class="widget-title"><i class="fa fa-archive"> 归档</i></div><ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/01/">一月 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/10/">十月 2017</a></li></ul></div><div class="widget"><div class="widget-title"><i class="fa fa-you"> 友情链接</i></div><ul></ul><a href="https://github.com/shuaiweili" title="github" target="_blank">github</a></div></div></div></div><a id="totop" href="#top"></a><div id="footer"><div class="footer-info"><p><a href="/baidusitemap.xml">Baidu Site Haritası</a> |  <a href="/atom.xml">订阅</a> |  <a href="/about/">关于</a></p><p>本站总访问量：<i id="busuanzi_container_site_pv"><i id="busuanzi_value_site_pv"></i></i>次</p><p><span> Copyright &copy;<a href="/." rel="nofollow">shuaiwei.li.</a></span><span> Theme by<a rel="nofollow" target="_blank" href="https://github.com/chaooo/hexo-theme-BlueLake"> BlueLake.</a></span><span> Count by<a href="http://busuanzi.ibruce.info/"> busuanzi.</a></span><span> Powered by<a rel="nofollow" target="_blank" href="https://hexo.io"> Hexo.</a></span></p></div></div></div><script src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js" async></script><script type="text/javascript" src="/js/search.json.js?v=2.0.1"></script><script>(function(){
+  var bp = document.createElement('script');
+  var curProtocol = window.location.protocol.split(':')[0];
+  if (curProtocol === 'https') {
+      bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
+  }
+  else {
+      bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+  }
+  var s = document.getElementsByTagName("script")[0];
+  s.parentNode.insertBefore(bp, s);
+})();</script><script type="text/javascript" src="/js/toctotop.js?v=2.0.1" async></script><script>window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":["mshare","weixin","tsina","qzone","linkedin","fbook","twi","print","renren","sqq","evernotecn","bdysc","tqq","tqf","bdxc","kaixin001","tieba","douban","bdhome","thx","ibaidu","meilishuo","mogujie","diandian","huaban","duitang","hx","fx","youdao","sdo","qingbiji","people","xinhua","mail","isohu","yaolan","wealink","ty","iguba","h163","copy"],"bdPic":"","bdStyle":"1","bdSize":"16"},"share":{},"image":{"viewList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"],"viewText":"分享到：","viewSize":"16"},"selectShare":{"bdContainerClass":null,"bdSelectMiniList":["tsina","qzone","weixin","fbook","twi","linkedin","youdao","evernotecn","mshare"]}};with(document)0[(getElementsByTagName('head')[0]||head).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+</script></body></html>
