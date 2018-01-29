@@ -1,2 +1,5 @@
 http://www.askgit.com/2018/01/25/SpringBoot Mybatis之读写分离/
 http://www.askgit.com/2018/01/24/SpringBoot Mybatis之多数据源/
+http://www.askgit.com/2018/01/23/Spring Transaction源码走读/
+http://www.askgit.com/2018/01/17/Jenkins获取代码及打包方式/
+http://www.askgit.com/2018/01/17/日志收集/
