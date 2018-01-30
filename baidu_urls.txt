@@ -1,1 +1,10 @@
-http://www.askgit.com/2018/01/25/SpringBoot Mybatis之读写分离/
+http://www.askgit.com/p/SpringBoot-Mybatis-ReadWrite/
+http://www.askgit.com/p/SpringBoot-Mybatis-Multiple-DataSource/
+http://www.askgit.com/p/Spring-Transaction-Code/
+http://www.askgit.com/p/Jenkins-fetch-and-package/
+http://www.askgit.com/p/Log-Collection/
+http://www.askgit.com/p/dushubiji-xianchengchijizhiheyuanli/
+http://www.askgit.com/p/kafka-Producer-Send/
+http://www.askgit.com/p/kafka-Meta/
+http://www.askgit.com/p/kafka-Architecture/
+http://www.askgit.com/p/volatile-guanjianzijiexie/
