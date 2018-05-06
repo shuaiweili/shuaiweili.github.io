@@ -1,1 +1,1 @@
-http://www.askgit.com/p/spring-cloud-microservice/
+http://www.askgit.com/p/shiro-auth/
